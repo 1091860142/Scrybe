@@ -33,6 +33,30 @@ class FakeProvider(ASRProvider):
         )
 
 
+def test_extract_caches_wav(monkeypatch, tmp_path):
+    """第二次提取应复用缓存，不重新转码（重试识别时不重新提取）。"""
+    src = tmp_path / "cached.mp4"
+    src.write_bytes(b"dummy")
+    wav = tmp_path / "pre.wav"
+    _make_wav(wav)
+    calls: list = []
+
+    def fake_transcode(s, d):
+        calls.append(d)
+        shutil.copyfile(wav, d)
+
+    monkeypatch.setattr("app.core.pipeline.transcode_to_wav", fake_transcode)
+
+    job = FileJob(source=src, output_dir=tmp_path / "out", size_bytes=10)
+    pipe = Pipeline(Config(), FakeProvider())
+    w1 = pipe.extract(job, log=lambda l, m: None)
+    w2 = pipe.extract(job, log=lambda l, m: None)
+
+    assert w1 == w2
+    assert w1.exists() and w1.stat().st_size > 0
+    assert len(calls) == 1  # 第二次命中缓存，不再转码
+
+
 def test_single_chunk(monkeypatch, tmp_path):
     src = tmp_path / "测试 视频.mp4"
     src.write_bytes(b"dummy")

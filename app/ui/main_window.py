@@ -1,6 +1,7 @@
 """主窗口。"""
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 from PySide6.QtCore import QMimeData, Qt, QUrl
@@ -24,6 +25,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QAction, QBrush, QColor
 
 from app.config import Config, default_output_dir, load_config, save_config
+from app.core.pipeline import cache_dir
 from app.models import FileJob, FileStatus
 from app.ui.file_list_model import FileListModel
 from app.ui.settings_dialog import SettingsDialog
@@ -44,6 +46,7 @@ class MainWindow(QMainWindow):
         self._model = FileListModel(self)
         self._thread: QThread | None = None
         self._worker: QueueWorker | None = None
+        self._queue_phase: str = ""  # "extract" | "recognize"
         self._setup_ui()
         self.setWindowTitle("Scrybe —— 批量媒体转字幕")
         self.resize(900, 650)
@@ -78,6 +81,11 @@ class MainWindow(QMainWindow):
         self._act_stop.setEnabled(False)
         self._act_stop.triggered.connect(self._on_stop)
         tb.addAction(self._act_stop)
+        self._act_retry = QAction("↻ 重试失败", self)
+        self._act_retry.setEnabled(False)
+        self._act_retry.setToolTip("重新识别失败的任务（音频已缓存，无需重新提取）")
+        self._act_retry.triggered.connect(self._on_retry)
+        tb.addAction(self._act_retry)
         self.addToolBar(tb)
 
         # 文件表
@@ -191,11 +199,25 @@ class MainWindow(QMainWindow):
         if not jobs:
             QMessageBox.information(self, "提示", "请先添加至少一个文件。")
             return
+        if all(j.status == FileStatus.SUCCESS for j in jobs):
+            QMessageBox.information(self, "提示", "列表中的文件都已成功转换，请先添加新文件。")
+            return
         self._model.reset_statuses()
         self._log.clear()
+        self._run_queue()
 
+    def _on_retry(self) -> None:
+        """重试失败项：音频已缓存，直接走识别，不重新提取。"""
+        self._model.reset_failed()
+        self._log.clear()
+        self._log_msg("info", "重试失败项…")
+        self._run_queue()
+
+    def _run_queue(self) -> None:
+        jobs = self._model.jobs()
         self._act_start.setEnabled(False)
         self._act_stop.setEnabled(True)
+        self._act_retry.setEnabled(False)
         self._act_add.setEnabled(False)
         self._act_folder.setEnabled(False)
         self._act_settings.setEnabled(False)
@@ -206,6 +228,7 @@ class MainWindow(QMainWindow):
 
         ws = self._worker.signals
         ws.log.connect(self._log_msg)
+        ws.queue_phase.connect(self._on_queue_phase)
         ws.file_started.connect(self._on_file_started)
         ws.file_progress.connect(self._on_file_progress)
         ws.file_done.connect(self._on_file_done)
@@ -222,7 +245,7 @@ class MainWindow(QMainWindow):
         if self._worker:
             self._worker.stop()
             self._act_stop.setEnabled(False)
-            self._log_msg("info", "正在停止（当前文件处理完后生效）…")
+            self._log_msg("info", "正在停止（当前任务完成后生效）…")
 
     def _on_file_started(self, idx: int) -> None:
         job = self._model._jobs[idx]
@@ -236,10 +259,15 @@ class MainWindow(QMainWindow):
         status = {"success": FileStatus.SUCCESS, "failed": FileStatus.FAILED, "canceled": FileStatus.CANCELED}.get(result, FileStatus.FAILED)
         self._model.set_status(idx, status, "" if result == "success" else detail)
 
+    def _on_queue_phase(self, phase: str) -> None:
+        self._queue_phase = phase
+        self._lbl_file.setText("正在提取音频…" if phase == "extract" else "正在识别字幕…")
+
     def _on_queue_progress(self, done: int, total: int) -> None:
         pct = int(done / total * 100) if total else 0
         self._pbar_queue.setValue(pct)
-        self._lbl_queue.setText(f"{done} / {total}")
+        prefix = "提取" if self._queue_phase == "extract" else "识别"
+        self._lbl_queue.setText(f"{prefix} {done} / {total}")
 
     def _on_queue_finished(self) -> None:
         self._act_start.setEnabled(True)
@@ -248,6 +276,8 @@ class MainWindow(QMainWindow):
         self._act_folder.setEnabled(True)
         self._act_settings.setEnabled(True)
         self._lbl_file.setText("完成")
+        has_failed = any(j.status == FileStatus.FAILED for j in self._model._jobs)
+        self._act_retry.setEnabled(has_failed)
 
         # 汇总
         jobs = self._model._jobs
@@ -277,13 +307,12 @@ class MainWindow(QMainWindow):
         if self._thread and self._thread.isRunning():
             r = QMessageBox.question(self, "确认", "任务正在运行，确定要退出吗？\n（正在处理的文件完成后才会退出）",
                                      QMessageBox.Yes | QMessageBox.No)
-            if r == QMessageBox.Yes:
-                if self._worker:
-                    self._worker.stop()
-                self._thread.quit()
-                self._thread.wait(10000)
-                event.accept()
-            else:
+            if r == QMessageBox.No:
                 event.ignore()
-        else:
-            event.accept()
+                return
+            if self._worker:
+                self._worker.stop()
+            self._thread.quit()
+            self._thread.wait(10000)
+        shutil.rmtree(cache_dir(), ignore_errors=True)
+        event.accept()

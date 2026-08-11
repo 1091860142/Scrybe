@@ -102,6 +102,11 @@ class SettingsDialog(QDialog):
         self._spn_gap.setSuffix(" ms")
         self._spn_gap.setToolTip("相邻两句间隔小于此值时合并为一条字幕")
         adv_ly.addRow("合并阈值:", self._spn_gap)
+        self._spn_parallel = QSpinBox()
+        self._spn_parallel.setRange(1, 8)
+        self._spn_parallel.setSuffix(" 个")
+        self._spn_parallel.setToolTip("同时提取多少个文件的音频（API 识别始终按顺序逐个进行）")
+        adv_ly.addRow("并行提取数:", self._spn_parallel)
         root.addWidget(adv)
 
         # 按钮
@@ -125,6 +130,7 @@ class SettingsDialog(QDialog):
         self._edt_out.setText(c.output_dir)
         self._spn_chunk.setValue(c.chunk_seconds)
         self._spn_gap.setValue(c.merge_gap_ms)
+        self._spn_parallel.setValue(c.parallel_extractions)
         self._on_provider_changed()
 
     # ---- slots ----
@@ -149,4 +155,5 @@ class SettingsDialog(QDialog):
         c.output_dir = self._edt_out.text().strip()
         c.chunk_seconds = self._spn_chunk.value()
         c.merge_gap_ms = self._spn_gap.value()
+        c.parallel_extractions = self._spn_parallel.value()
         self.accept()

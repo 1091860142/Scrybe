@@ -18,6 +18,7 @@ class Config:
     openai_model: str = "whisper-1"
     chunk_seconds: int = 600  # OpenAI 兼容切块时长
     merge_gap_ms: int = 400  # SRT 合并阈值
+    parallel_extractions: int = 2  # 并行提取音频的文件数
 
 
 def config_path() -> Path:
