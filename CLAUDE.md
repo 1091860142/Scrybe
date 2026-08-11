@@ -17,3 +17,4 @@
 4. **API Key**：存于本机 `%APPDATA%\Scrybe\config.json`；不回显、不入文档、不提交到任何公开仓库。
 5. **测试**：离线可测的部分必须写 `tests/` 单测（`pytest`）；真实 API 用 `tools/` 下的 live 脚本实测。
 6. **打包**：`build.ps1` 一键生成 `dist\Scrybe.exe`（onefile + windowed，内置 ffmpeg）。
+7. **推送 GitHub**：origin 已配置为 SSH（`git@github.com:1091860142/Scrybe.git`，免密）。提交后直接 `git push` 即可；本机全局 git 的 ghproxy 加速只影响下载（fetch 走 HTTPS 时会被改写），SSH 推送不受影响。**API Key 绝不入仓库**（配置存 `%APPDATA%\Scrybe\config.json`，已被 .gitignore 排除）。
