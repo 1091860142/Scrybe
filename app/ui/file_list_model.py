@@ -59,10 +59,22 @@ class FileListModel(QAbstractTableModel):
         self.dataChanged.emit(self.index(row, 2), self.index(row, 3))
 
     def reset_statuses(self) -> None:
+        """重置未完成任务为待处理；已成功的任务保持不变，避免重复识别。"""
         for j in self._jobs:
+            if j.status == FileStatus.SUCCESS:
+                continue
             j.status = FileStatus.PENDING
             j.error = ""
             j.progress = 0
+        self.dataChanged.emit(self.index(0, 2), self.index(len(self._jobs) - 1, 3))
+
+    def reset_failed(self) -> None:
+        """只把失败的任务重置为待处理（重试按钮用）。"""
+        for j in self._jobs:
+            if j.status == FileStatus.FAILED:
+                j.status = FileStatus.PENDING
+                j.error = ""
+                j.progress = 0
         self.dataChanged.emit(self.index(0, 2), self.index(len(self._jobs) - 1, 3))
 
     # ---- QAbstractTableModel ----
